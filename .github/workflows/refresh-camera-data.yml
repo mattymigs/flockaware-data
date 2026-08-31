@@ -1,0 +1,56 @@
+name: Refresh camera data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/refresh_nj.mjs"
+      - ".github/workflows/refresh-camera-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-flockaware-camera-data
+  cancel-in-progress: false
+
+jobs:
+  refresh-new-jersey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Fetch, normalize, validate, and compare New Jersey records
+        run: node scripts/refresh_nj.mjs
+
+      - name: Commit validated publication
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add us_state_manifest.json states/NJ.json changes/NJ.json
+          if git diff --cached --quiet; then
+            echo "No validated camera changes to publish."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Publish updated New Jersey camera data"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
