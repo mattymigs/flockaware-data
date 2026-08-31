@@ -1,0 +1,65 @@
+name: Deploy data platform to GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "us_state_manifest.json"
+      - "states/**"
+      - "changes/**"
+      - "index.html"
+      - "README.md"
+      - "DATA_LICENSE.md"
+      - ".github/workflows/deploy-pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: flockaware-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Build public artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site/states _site/changes
+          cp index.html README.md DATA_LICENSE.md _site/
+          if [[ -f us_state_manifest.json ]]; then
+            cp us_state_manifest.json _site/
+          fi
+          if compgen -G "states/*.json" > /dev/null; then
+            cp states/*.json _site/states/
+          fi
+          if compgen -G "changes/*.json" > /dev/null; then
+            cp changes/*.json _site/changes/
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
