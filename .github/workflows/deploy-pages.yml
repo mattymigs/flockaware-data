@@ -2,17 +2,6 @@ name: Deploy data platform to GitHub Pages
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "us_state_manifest.json"
-      - "states/**"
-      - "changes/**"
-      - "index.html"
-      - "README.md"
-      - "DATA_LICENSE.md"
-      - ".github/workflows/deploy-pages.yml"
 
 permissions:
   contents: read
@@ -36,8 +25,6 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Build public artifact
         shell: bash
