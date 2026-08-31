@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - "scripts/refresh_nj.mjs"
+      - "scripts/validate_publication.mjs"
       - ".github/workflows/refresh-camera-data.yml"
 
 permissions:
@@ -36,6 +37,9 @@ jobs:
 
       - name: Fetch, normalize, validate, and compare New Jersey records
         run: node scripts/refresh_nj.mjs
+
+      - name: Independently validate publication integrity
+        run: node scripts/validate_publication.mjs
 
       - name: Commit validated publication
         shell: bash
