@@ -1,4 +1,4 @@
-name: Refresh camera data
+name: Refresh national camera data
 
 on:
   workflow_dispatch:
@@ -8,21 +8,21 @@ on:
     branches:
       - main
     paths:
-      - "scripts/refresh_nj.mjs"
-      - "scripts/validate_publication.mjs"
+      - "scripts/refresh_us.py"
+      - "scripts/validate_us.py"
       - ".github/workflows/refresh-camera-data.yml"
 
 permissions:
   contents: write
 
 concurrency:
-  group: refresh-flockaware-camera-data
+  group: refresh-flockaware-national-camera-data
   cancel-in-progress: false
 
 jobs:
-  refresh-new-jersey:
+  refresh-united-states:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -30,23 +30,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: "22"
+          python-version: "3.12"
+          cache: "pip"
 
-      - name: Fetch, normalize, validate, and compare New Jersey records
-        run: node scripts/refresh_nj.mjs
+      - name: Install geospatial pipeline dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "shapely>=2,<3" "pyshp>=2.3,<3"
 
-      - name: Independently validate publication integrity
-        run: node scripts/validate_publication.mjs
+      - name: Build 50-state and DC camera publication
+        run: python scripts/refresh_us.py
+
+      - name: Independently validate complete publication
+        run: python scripts/validate_us.py
 
       - name: Commit validated publication
         shell: bash
         run: |
           set -euo pipefail
 
-          git add us_state_manifest.json states/NJ.json changes/NJ.json
+          git add us_state_manifest.json states changes
           if git diff --cached --quiet; then
             echo "No validated camera changes to publish."
             exit 0
@@ -54,7 +60,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Publish updated New Jersey camera data"
+          git commit -m "Publish national camera data"
 
           git pull --rebase origin main
           git push origin HEAD:main
