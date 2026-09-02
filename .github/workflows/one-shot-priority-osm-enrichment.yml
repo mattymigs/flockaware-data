@@ -1,0 +1,68 @@
+name: Priority Northeast OSM enrichment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/one-shot-priority-osm-enrichment.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-flockaware-camera-publication
+  cancel-in-progress: false
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Refresh priority state metadata
+        run: python pipeline/osm_enrichment.py --states "PA,NY,DE,CT,MD,VA"
+
+      - name: Verify manifest hashes and counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest = json.loads(Path('us_state_manifest.json').read_text())
+          entries = {entry['stateCode']: entry for entry in manifest['states']}
+          for code in ('PA','NY','DE','CT','MD','VA'):
+              path = Path('states') / f'{code}.json'
+              raw = path.read_bytes()
+              data = json.loads(raw)
+              entry = entries[code]
+              assert len(data['cameras']) == entry['cameraCount'], code
+              assert data['metadata']['cameraCount'] == entry['cameraCount'], code
+              assert hashlib.sha256(raw).hexdigest() == entry['sha256'], code
+          print('Priority enriched publication validated.')
+          PY
+
+      - name: Publish enrichment and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/one-shot-priority-osm-enrichment.yml
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "No enrichment changes to publish."
+            exit 0
+          fi
+          git commit -m "Enrich Northeast camera metadata from OpenStreetMap"
+          git pull --rebase origin main
+          git push origin HEAD:main
