@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "us_state_manifest.json"
 STATES_DIR = ROOT / "states"
 CHANGES_DIR = ROOT / "changes"
+ALERTS_DIR = ROOT / "alerts"
 EXPECTED_CODES = {
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
     "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
@@ -54,6 +55,10 @@ def validate_camera(camera: dict[str, Any], state_code: str, seen: set[str]) -> 
     record_state = camera.get("stateCode")
     if record_state is not None and str(record_state).upper() != state_code:
         fail(f"{state_code}: {camera_id} declares state {record_state}")
+
+    detail_level = camera.get("detailLevel")
+    if detail_level is not None and detail_level not in {"basic", "enriched"}:
+        fail(f"{state_code}: {camera_id} has invalid detailLevel {detail_level}")
 
 
 def main() -> None:
@@ -139,6 +144,13 @@ def main() -> None:
         if metadata_counts != actual_counts:
             fail(f"{state_code}: metadata attribute counts mismatch {metadata_counts} != {actual_counts}")
 
+        enriched_count = sum(1 for camera in cameras if camera.get("detailLevel") == "enriched")
+        if entry.get("enrichedCount") is not None:
+            if entry.get("enrichedCount") != enriched_count:
+                fail(f"{state_code}: manifest enriched count mismatch")
+            if entry.get("basicCount") != len(cameras) - enriched_count:
+                fail(f"{state_code}: manifest basic count mismatch")
+
         bounds = entry.get("bounds") or {}
         required_bounds = ("north", "south", "east", "west")
         if any(not isinstance(bounds.get(key), (int, float)) for key in required_bounds):
@@ -167,6 +179,34 @@ def main() -> None:
         fail("Manifest national camera total does not match state files")
     if manifest.get("totalFlockCount") != total_flock:
         fail("Manifest national Flock total does not match state files")
+
+    alert_feed_url = manifest.get("alertFeedURL")
+    if alert_feed_url:
+        alert_path = ROOT / str(alert_feed_url)
+        if not alert_path.exists():
+            fail("Manifest alert feed is missing")
+        alert_feed = read_json(alert_path)
+        if alert_feed.get("schemaVersion") != 1:
+            fail("Unsupported new-camera alert feed schema")
+        events = alert_feed.get("events")
+        if not isinstance(events, list) or alert_feed.get("eventCount") != len(events):
+            fail("New-camera alert feed event count mismatch")
+        event_ids: set[str] = set()
+        for event in events:
+            event_id = str(event.get("eventId") or "")
+            if not event_id or event_id in event_ids:
+                fail(f"Invalid or duplicate new-camera event ID: {event_id!r}")
+            event_ids.add(event_id)
+            state_code = str(event.get("stateCode") or "").upper()
+            if state_code not in EXPECTED_CODES:
+                fail(f"New-camera event has invalid state: {state_code}")
+            camera = event.get("camera")
+            if not isinstance(camera, dict):
+                fail(f"New-camera event {event_id} has no camera summary")
+            latitude = camera.get("latitude")
+            longitude = camera.get("longitude")
+            if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
+                fail(f"New-camera event {event_id} has invalid coordinates")
 
     print(
         f"Validated {total_cameras:,} cameras across 50 states + DC "
