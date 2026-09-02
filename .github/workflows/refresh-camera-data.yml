@@ -8,8 +8,7 @@ on:
     branches:
       - main
     paths:
-      - "scripts/refresh_us.py"
-      - "scripts/validate_us.py"
+      - "pipeline/**"
       - ".github/workflows/refresh-camera-data.yml"
 
 permissions:
@@ -22,7 +21,7 @@ concurrency:
 jobs:
   refresh-united-states:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -36,15 +35,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install geospatial pipeline dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "shapely>=2,<3" "pyshp>=2.3,<3"
+        run: python -m pip install --disable-pip-version-check -r pipeline/requirements.txt
 
       - name: Build 50-state and DC camera publication
-        run: python scripts/refresh_us.py
+        run: python pipeline/build_us_states.py
 
       - name: Independently validate complete publication
-        run: python scripts/validate_us.py
+        run: python pipeline/validate_us_publication.py
 
       - name: Commit validated publication
         shell: bash
@@ -59,7 +56,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Publish national camera data"
+          git commit -m "Publish refreshed national camera data"
 
           git pull --rebase origin main
           git push origin HEAD:main
