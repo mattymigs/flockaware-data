@@ -1,0 +1,115 @@
+name: Harden national camera bootstrap
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/harden-national-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make first national publication resumable
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/refresh_us.mjs")
+          text = path.read_text()
+
+          old = """  if (!requested) return STATE_DEFINITIONS;
+
+  const selected = STATE_DEFINITIONS.filter(({ stateCode }) => requested.has(stateCode));
+"""
+          new = """  const priority = ['NJ', 'NY', 'PA', 'DE', 'CT', 'MD', 'VA', 'FL', 'TX', 'CA'];
+  const priorityIndex = new Map(priority.map((code, index) => [code, index]));
+  const ordered = [...STATE_DEFINITIONS].sort((a, b) => {
+    const aPriority = priorityIndex.get(a.stateCode) ?? Number.MAX_SAFE_INTEGER;
+    const bPriority = priorityIndex.get(b.stateCode) ?? Number.MAX_SAFE_INTEGER;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return a.stateCode.localeCompare(b.stateCode);
+  });
+
+  if (!requested) return ordered;
+
+  const selected = ordered.filter(({ stateCode }) => requested.has(stateCode));
+"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """  } catch (error) {
+    if (!oldDataset || !oldEntry) throw error;
+    console.warn(`[${stateCode}] retaining last-known-good publication after fetch failure`);
+    await copyFile(previousDatasetPath, join(TEMP_STATES_DIR, `${stateCode}.json`));
+    if (await readJSON(previousChangesPath)) {
+      await copyFile(previousChangesPath, join(TEMP_CHANGES_DIR, `${stateCode}.json`));
+    }
+    return { entry: oldEntry, changed: false, retained: true };
+  }
+"""
+          new = """  } catch (error) {
+    if (!oldDataset || !oldEntry) {
+      console.warn(`[${stateCode}] first publication deferred after all sources failed: ${error.message}`);
+      return { entry: null, changed: false, retained: false, deferred: true };
+    }
+    console.warn(`[${stateCode}] retaining last-known-good publication after fetch failure`);
+    await copyFile(previousDatasetPath, join(TEMP_STATES_DIR, `${stateCode}.json`));
+    if (await readJSON(previousChangesPath)) {
+      await copyFile(previousChangesPath, join(TEMP_CHANGES_DIR, `${stateCode}.json`));
+    }
+    return { entry: oldEntry, changed: false, retained: true, deferred: false };
+  }
+"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """      const result = await prepareState(definition, existingManifest);
+      entries.push(result.entry);
+      if (index < definitions.length) await sleep(BETWEEN_STATE_DELAY_MS);
+"""
+          new = """      const result = await prepareState(definition, existingManifest);
+      if (result.entry) entries.push(result.entry);
+      if (index < definitions.length) await sleep(BETWEEN_STATE_DELAY_MS);
+"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """  if (entries.length === STATE_DEFINITIONS.length && totalCameraCount < MIN_NATIONAL_CAMERA_COUNT) {
+"""
+          new = """  if (entries.length === 0) {
+    throw new Error('No state publications are available; refusing to write an empty manifest');
+  }
+
+  if (entries.length === STATE_DEFINITIONS.length && totalCameraCount < MIN_NATIONAL_CAMERA_COUNT) {
+"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          rm -f .github/workflows/harden-national-bootstrap.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo "National bootstrap was already hardened."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Make national camera bootstrap resumable"
+          git pull --rebase origin main
+          git push origin HEAD:main
