@@ -1,0 +1,73 @@
+name: Refresh United States camera data
+
+on:
+  workflow_dispatch:
+    inputs:
+      states:
+        description: "Optional comma-separated state codes; leave blank for all 50 states plus DC"
+        required: false
+        default: ""
+  schedule:
+    - cron: "23 08 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/refresh_us.mjs"
+      - "scripts/validate_us_publication.mjs"
+      - ".github/workflows/refresh-us-camera-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-flockaware-us-camera-data
+  cancel-in-progress: false
+
+jobs:
+  refresh-united-states:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Refresh requested jurisdictions
+        shell: bash
+        env:
+          REQUESTED_STATES: ${{ github.event.inputs.states || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${REQUESTED_STATES}" ]]; then
+            node scripts/refresh_us.mjs --states="${REQUESTED_STATES}"
+          else
+            node scripts/refresh_us.mjs
+          fi
+
+      - name: Validate complete publication
+        run: node scripts/validate_us_publication.mjs
+
+      - name: Commit validated publication
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add us_state_manifest.json states changes
+          if git diff --cached --quiet; then
+            echo "No validated camera changes to publish."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Publish refreshed United States camera data"
+          git pull --rebase origin main
+          git push origin HEAD:main
