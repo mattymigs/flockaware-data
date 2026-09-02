@@ -6,6 +6,7 @@ on:
       - feature/osm-enrichment-alert-feed
     paths:
       - ".github/workflows/preview-enriched-publication.yml"
+      - "scripts/fix_existing_detail_levels.py"
 
 permissions:
   contents: write
@@ -33,6 +34,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Apply existing-rich-record detail labels
+        run: python scripts/fix_existing_detail_levels.py
+
       - name: Install geospatial dependencies
         run: python -m pip install --disable-pip-version-check -r pipeline/requirements.txt
 
@@ -45,11 +49,12 @@ jobs:
       - name: Validate full publication
         run: python pipeline/validate_us_publication.py
 
-      - name: Commit validated preview and remove one-shot workflow
+      - name: Commit validated preview and remove temporary tooling
         shell: bash
         run: |
           set -euo pipefail
           rm -f .github/workflows/preview-enriched-publication.yml
+          rm -f scripts/fix_existing_detail_levels.py
           git add -A
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
