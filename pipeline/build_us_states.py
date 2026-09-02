@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from enrichment import EnrichmentStats, enrich_cameras, has_rich_metadata
 import shapefile  # pyshp
 from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
@@ -38,6 +39,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATES_DIR = ROOT / "states"
 CHANGES_DIR = ROOT / "changes"
 MANIFEST_PATH = ROOT / "us_state_manifest.json"
+ENRICHMENT_DIR = ROOT / "enrichment"
+ALERTS_DIR = ROOT / "alerts"
+ALERT_LATEST_PATH = ALERTS_DIR / "latest.json"
 
 INDEX_SIDECAR_URL = "https://tiles.dontgetflocked.com/cameras-us-hourly-index.json"
 INDEX_BINARY_URL = "https://tiles.dontgetflocked.com/cameras-us-hourly-index.bin"
@@ -374,6 +378,8 @@ def camera_summary(camera: dict[str, Any]) -> dict[str, Any]:
         "municipality": camera.get("municipality"),
         "county": camera.get("county"),
         "sourceURL": camera.get("sourceURL"),
+        "stateCode": camera.get("stateCode"),
+        "detailLevel": camera.get("detailLevel"),
     }
 
 
@@ -486,10 +492,61 @@ def previous_entry_by_code(manifest: dict[str, Any] | None) -> dict[str, dict[st
     }
 
 
+def load_enrichment_overlay(state_code: str) -> dict[str, Any] | None:
+    overlay = read_json(ENRICHMENT_DIR / f"{state_code}.json")
+    if not isinstance(overlay, dict):
+        return None
+    if int(overlay.get("schemaVersion", 0)) != 1:
+        print(f"{state_code}: ignoring unsupported enrichment schema")
+        return None
+    cameras = overlay.get("cameras")
+    if not isinstance(cameras, list):
+        print(f"{state_code}: ignoring malformed enrichment overlay")
+        return None
+    declared_count = overlay.get("cameraCount")
+    if declared_count is not None and declared_count != len(cameras):
+        print(f"{state_code}: ignoring enrichment count mismatch")
+        return None
+    return overlay
+
+
+def stats_for_existing_dataset(dataset: dict[str, Any]) -> EnrichmentStats:
+    cameras = dataset.get("cameras", [])
+    enriched_count = sum(1 for camera in cameras if has_rich_metadata(camera))
+    return EnrichmentStats(
+        base_count=len(cameras),
+        overlay_count=enriched_count,
+        matched_count=enriched_count,
+        enriched_count=enriched_count,
+        basic_count=len(cameras) - enriched_count,
+        unmatched_overlay_count=0,
+    )
+
+
+def alert_event(
+    state_code: str,
+    state_name: str,
+    dataset_version: int,
+    generated_at: str,
+    camera: dict[str, Any],
+) -> dict[str, Any]:
+    camera_id = str(camera.get("id") or "")
+    return {
+        "eventId": f"{state_code}:v{dataset_version}:{camera_id}",
+        "eventType": "camera_added",
+        "stateCode": state_code,
+        "stateName": state_name,
+        "datasetVersion": dataset_version,
+        "detectedAt": generated_at,
+        "camera": camera,
+    }
+
+
 def main() -> None:
     generated_at = utc_now()
     previous_manifest = read_json(MANIFEST_PATH)
     previous_entries = previous_entry_by_code(previous_manifest)
+    latest_alert_events: list[dict[str, Any]] = []
 
     print("Downloading national position index…")
     sidecar_data = fetch_bytes(INDEX_SIDECAR_URL)
@@ -530,8 +587,10 @@ def main() -> None:
     staging = Path(tempfile.mkdtemp(prefix="flockaware-us-publication-"))
     staged_states = staging / "states"
     staged_changes = staging / "changes"
+    staged_alerts = staging / "alerts"
     staged_states.mkdir(parents=True)
     staged_changes.mkdir(parents=True)
+    staged_alerts.mkdir(parents=True)
 
     any_camera_changes = False
     manifest_entries: list[dict[str, Any]] = []
@@ -543,13 +602,14 @@ def main() -> None:
             old_dataset = read_json(old_path)
             old_entry = previous_entries.get(state_code)
 
-            # Preserve the enriched NJ dataset produced by refresh_nj.mjs. All
-            # other states are built from the compact national index in phase 1.
+            # Keep the existing rich New Jersey publication stable while the
+            # same direct-OSM enrichment system is rolled out nationally.
             if state_code == "NJ" and old_dataset and old_dataset.get("cameras"):
                 candidate = old_dataset
+                enrichment_stats = stats_for_existing_dataset(candidate)
             else:
                 occurrences: dict[tuple[int, int, int], int] = defaultdict(int)
-                cameras: list[dict[str, Any]] = []
+                base_cameras: list[dict[str, Any]] = []
                 for record in sorted(
                     assigned[state_code],
                     key=lambda item: (
@@ -565,15 +625,26 @@ def main() -> None:
                     )
                     occurrence = occurrences[key]
                     occurrences[key] += 1
-                    cameras.append(camera_from_record(record, occurrence, state_code))
+                    base_cameras.append(camera_from_record(record, occurrence, state_code))
+
+                overlay = load_enrichment_overlay(state_code)
+                overlay_cameras = overlay.get("cameras", []) if overlay else []
+                cameras, enrichment_stats = enrich_cameras(
+                    base_cameras,
+                    overlay_cameras,
+                    overlay_source=overlay.get("source") if overlay else None,
+                )
 
                 flock_count, bearing_count, operator_count = dataset_counts(cameras)
+                source = "OpenStreetMap via DeFlock public camera index"
+                if enrichment_stats.matched_count > 0:
+                    source += " + direct OSM metadata enrichment"
                 candidate = {
                     "metadata": {
                         "schemaVersion": 2,
                         "generatedAt": generated_at,
                         "jurisdiction": boundary.name,
-                        "source": "OpenStreetMap via DeFlock public camera index",
+                        "source": source,
                         "sourceURL": INDEX_SIDECAR_URL,
                         "attribution": "© OpenStreetMap contributors",
                         "license": "ODbL-1.0",
@@ -582,6 +653,8 @@ def main() -> None:
                         "directionCount": bearing_count,
                         "operatorCount": operator_count,
                         "isDemo": False,
+                        "enrichmentGeneratedAt": overlay.get("generatedAt") if overlay else None,
+                        "enrichmentStats": enrichment_stats.as_dict(),
                     },
                     "cameras": cameras,
                 }
@@ -611,6 +684,11 @@ def main() -> None:
                     generated_at,
                 )
                 (staged_changes / f"{state_code}.json").write_bytes(compact_json_bytes(changes))
+                if not changes.get("baseline"):
+                    latest_alert_events.extend(
+                        alert_event(state_code, boundary.name, version, generated_at, camera)
+                        for camera in changes.get("added", [])
+                    )
             else:
                 old_change_path = CHANGES_DIR / f"{state_code}.json"
                 if old_change_path.exists():
@@ -642,6 +720,9 @@ def main() -> None:
                 "flockCount": flock_count,
                 "directionCount": bearing_count,
                 "operatorCount": operator_count,
+                "enrichedCount": enrichment_stats.enriched_count,
+                "basicCount": enrichment_stats.basic_count,
+                "enrichmentMatchCount": enrichment_stats.matched_count,
                 "fileSizeBytes": len(dataset_bytes),
                 "adjacentStates": STATE_ADJACENCY[state_code],
                 "bounds": {
@@ -665,7 +746,19 @@ def main() -> None:
             "totalCameraCount": total_count,
             "totalFlockCount": total_flock,
             "unassignedSourceCount": len(unassigned),
+            "alertFeedURL": "alerts/latest.json",
             "states": manifest_entries,
+        }
+
+        latest_alert_events.sort(key=lambda event: event["eventId"])
+        alert_feed = {
+            "schemaVersion": 1,
+            "publicationId": f"{sidecar.get('build') or generated_at}:{generated_at}",
+            "generatedAt": generated_at,
+            "sourceBuild": sidecar.get("build"),
+            "eventCount": len(latest_alert_events),
+            "states": sorted({event["stateCode"] for event in latest_alert_events}),
+            "events": latest_alert_events,
         }
 
         # If source data and every state payload are unchanged, preserve the old
@@ -676,20 +769,24 @@ def main() -> None:
 
         staged_manifest = staging / "us_state_manifest.json"
         staged_manifest.write_bytes(compact_json_bytes(manifest))
+        (staged_alerts / "latest.json").write_bytes(compact_json_bytes(alert_feed))
 
         # Atomic-ish repository replacement: all files are fully built and
         # validated in staging before they are copied into the publication tree.
         STATES_DIR.mkdir(parents=True, exist_ok=True)
         CHANGES_DIR.mkdir(parents=True, exist_ok=True)
+        ALERTS_DIR.mkdir(parents=True, exist_ok=True)
         for path in staged_states.glob("*.json"):
             os.replace(path, STATES_DIR / path.name)
         for path in staged_changes.glob("*.json"):
             os.replace(path, CHANGES_DIR / path.name)
+        os.replace(staged_alerts / "latest.json", ALERT_LATEST_PATH)
         os.replace(staged_manifest, MANIFEST_PATH)
 
         print(
             f"Published {total_count:,} camera records across 50 states + DC "
-            f"({total_flock:,} Flock-tagged)."
+            f"({total_flock:,} Flock-tagged; "
+            f"{len(latest_alert_events):,} new-camera alert events)."
         )
     finally:
         shutil.rmtree(staging, ignore_errors=True)
