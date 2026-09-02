@@ -510,9 +510,26 @@ def load_enrichment_overlay(state_code: str) -> dict[str, Any] | None:
     return overlay
 
 
+def tag_existing_dataset_detail_levels(dataset: dict[str, Any]) -> dict[str, Any]:
+    tagged_dataset = dict(dataset)
+    tagged_cameras: list[dict[str, Any]] = []
+    for camera in dataset.get("cameras", []):
+        tagged_camera = dict(camera)
+        tagged_camera["detailLevel"] = (
+            "enriched" if has_rich_metadata(tagged_camera) else "basic"
+        )
+        tagged_cameras.append(tagged_camera)
+    tagged_dataset["cameras"] = tagged_cameras
+    return tagged_dataset
+
+
 def stats_for_existing_dataset(dataset: dict[str, Any]) -> EnrichmentStats:
     cameras = dataset.get("cameras", [])
-    enriched_count = sum(1 for camera in cameras if has_rich_metadata(camera))
+    enriched_count = sum(
+        1
+        for camera in cameras
+        if camera.get("detailLevel") == "enriched" or has_rich_metadata(camera)
+    )
     return EnrichmentStats(
         base_count=len(cameras),
         overlay_count=enriched_count,
@@ -605,7 +622,7 @@ def main() -> None:
             # Keep the existing rich New Jersey publication stable while the
             # same direct-OSM enrichment system is rolled out nationally.
             if state_code == "NJ" and old_dataset and old_dataset.get("cameras"):
-                candidate = old_dataset
+                candidate = tag_existing_dataset_detail_levels(old_dataset)
                 enrichment_stats = stats_for_existing_dataset(candidate)
             else:
                 occurrences: dict[tuple[int, int, int], int] = defaultdict(int)
