@@ -1,4 +1,4 @@
-name: Refresh United States camera data
+name: Enrich United States camera metadata
 
 on:
   workflow_dispatch:
@@ -8,24 +8,31 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "23 08 * * *"
-  push:
-    branches:
-      - main
-    paths:
-      - "scripts/refresh_us.mjs"
-      - "scripts/validate_us_publication.mjs"
-      - ".github/workflows/refresh-us-camera-data.yml"
+    # NJ remains the launch market and gets a lightweight daily enrichment pass.
+    - cron: "47 06 * * *"
+
+    # National enrichment is split into nine smaller batches. Each batch runs
+    # twice weekly and the jobs are spread across the day instead of hammering
+    # public Overpass infrastructure in one nationwide pass.
+    - cron: "17 00 * * 1,4"
+    - cron: "17 03 * * 1,4"
+    - cron: "17 06 * * 1,4"
+    - cron: "17 09 * * 1,4"
+    - cron: "17 12 * * 1,4"
+    - cron: "17 15 * * 1,4"
+    - cron: "17 18 * * 1,4"
+    - cron: "17 21 * * 1,4"
+    - cron: "17 23 * * 1,4"
 
 permissions:
   contents: write
 
 concurrency:
-  group: refresh-flockaware-us-camera-data
+  group: enrich-flockaware-us-camera-data
   cancel-in-progress: false
 
 jobs:
-  refresh-united-states:
+  enrich-jurisdictions:
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -40,22 +47,52 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Refresh requested jurisdictions
+      - name: Select enrichment batch
+        id: batch
         shell: bash
         env:
           REQUESTED_STATES: ${{ github.event.inputs.states || '' }}
+          SCHEDULE: ${{ github.event.schedule || '' }}
         run: |
           set -euo pipefail
-          if [[ -n "${REQUESTED_STATES}" ]]; then
-            node scripts/refresh_us.mjs --states="${REQUESTED_STATES}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "states=${REQUESTED_STATES}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "$SCHEDULE" in
+            "47 06 * * *")   STATES="NJ" ;;
+            "17 00 * * 1,4") STATES="AL,FL,GA,MS,SC,TN" ;;
+            "17 03 * * 1,4") STATES="CT,DE,DC,ME,MD,MA" ;;
+            "17 06 * * 1,4") STATES="NH,NY,PA,RI,VT,VA" ;;
+            "17 09 * * 1,4") STATES="WV,NC,KY,OH,IN,MI" ;;
+            "17 12 * * 1,4") STATES="IL,WI,MN,IA,MO,AR" ;;
+            "17 15 * * 1,4") STATES="LA,TX,OK,KS,NE,SD" ;;
+            "17 18 * * 1,4") STATES="ND,MT,WY,CO,NM,AZ" ;;
+            "17 21 * * 1,4") STATES="UT,NV,CA,OR,WA,ID" ;;
+            "17 23 * * 1,4") STATES="AK,HI" ;;
+            *) echo "Unknown schedule: $SCHEDULE" >&2; exit 1 ;;
+          esac
+
+          echo "states=$STATES" >> "$GITHUB_OUTPUT"
+
+      - name: Enrich requested jurisdictions resiliently
+        shell: bash
+        env:
+          STATES: ${{ steps.batch.outputs.states }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$STATES" ]]; then
+            node scripts/refresh_us_resilient.mjs --states="$STATES"
           else
-            node scripts/refresh_us.mjs
+            node scripts/refresh_us_resilient.mjs
           fi
 
       - name: Validate complete publication
         run: node scripts/validate_us_publication.mjs
 
-      - name: Commit validated publication
+      - name: Commit validated enrichment
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +105,6 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Publish refreshed United States camera data"
+          git commit -m "Publish enriched United States camera metadata"
           git pull --rebase origin main
           git push origin HEAD:main
