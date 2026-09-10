@@ -92,14 +92,17 @@ jobs:
       - name: Validate complete publication
         run: node scripts/validate_us_publication.mjs
 
+      - name: Record national and state statistics
+        run: node scripts/record_stats_history.mjs
+
       - name: Commit validated enrichment
         shell: bash
         run: |
           set -euo pipefail
 
-          git add us_state_manifest.json states changes
+          git add us_state_manifest.json states changes statistics
           if git diff --cached --quiet; then
-            echo "No validated camera changes to publish."
+            echo "No validated camera or statistics changes to publish."
             exit 0
           fi
 
