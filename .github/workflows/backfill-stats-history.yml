@@ -1,0 +1,43 @@
+name: Backfill statistics history
+
+on:
+  push:
+    branches:
+      - feature/backfill-stats-history
+    paths:
+      - ".github/workflows/backfill-stats-history.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Backfill verified historical publications
+        run: node scripts/backfill_stats_history.mjs
+
+      - name: Commit backfill and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/backfill-stats-history.yml
+          git add statistics/history.json .github/workflows/backfill-stats-history.yml
+          if git diff --cached --quiet; then
+            echo "Statistics history already includes available historical publications."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Backfill verified camera publication history"
+          git push origin HEAD:feature/backfill-stats-history
