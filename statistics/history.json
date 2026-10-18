@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-17T11:12:15.953Z",
+  "updatedAt": "2026-10-18T11:45:38.834Z",
   "snapshots": [
     {
       "capturedAt": "2026-09-01T16:40:21.216Z",
@@ -46469,6 +46469,272 @@
         "NJ": {
           "stateName": "New Jersey",
           "cameraCount": 2383,
+          "flockCount": 1204
+        },
+        "NM": {
+          "stateName": "New Mexico",
+          "cameraCount": 1053,
+          "flockCount": 724
+        },
+        "NV": {
+          "stateName": "Nevada",
+          "cameraCount": 980,
+          "flockCount": 746
+        },
+        "NY": {
+          "stateName": "New York",
+          "cameraCount": 4687,
+          "flockCount": 2131
+        },
+        "OH": {
+          "stateName": "Ohio",
+          "cameraCount": 6926,
+          "flockCount": 6274
+        },
+        "OK": {
+          "stateName": "Oklahoma",
+          "cameraCount": 1517,
+          "flockCount": 1237
+        },
+        "OR": {
+          "stateName": "Oregon",
+          "cameraCount": 540,
+          "flockCount": 360
+        },
+        "PA": {
+          "stateName": "Pennsylvania",
+          "cameraCount": 3890,
+          "flockCount": 1420
+        },
+        "RI": {
+          "stateName": "Rhode Island",
+          "cameraCount": 323,
+          "flockCount": 294
+        },
+        "SC": {
+          "stateName": "South Carolina",
+          "cameraCount": 2126,
+          "flockCount": 1946
+        },
+        "SD": {
+          "stateName": "South Dakota",
+          "cameraCount": 184,
+          "flockCount": 158
+        },
+        "TN": {
+          "stateName": "Tennessee",
+          "cameraCount": 3646,
+          "flockCount": 3175
+        },
+        "TX": {
+          "stateName": "Texas",
+          "cameraCount": 17408,
+          "flockCount": 15909
+        },
+        "UT": {
+          "stateName": "Utah",
+          "cameraCount": 1061,
+          "flockCount": 805
+        },
+        "VA": {
+          "stateName": "Virginia",
+          "cameraCount": 3513,
+          "flockCount": 3198
+        },
+        "VT": {
+          "stateName": "Vermont",
+          "cameraCount": 30,
+          "flockCount": 18
+        },
+        "WA": {
+          "stateName": "Washington",
+          "cameraCount": 2319,
+          "flockCount": 1990
+        },
+        "WI": {
+          "stateName": "Wisconsin",
+          "cameraCount": 2107,
+          "flockCount": 1851
+        },
+        "WV": {
+          "stateName": "West Virginia",
+          "cameraCount": 259,
+          "flockCount": 212
+        },
+        "WY": {
+          "stateName": "Wyoming",
+          "cameraCount": 72,
+          "flockCount": 66
+        }
+      }
+    },
+    {
+      "capturedAt": "2026-10-18T11:45:37.538Z",
+      "sourceBuild": "2026-10-18T11:45:37.538Z",
+      "national": {
+        "cameraCount": 144316,
+        "flockCount": 115600,
+        "jurisdictionCount": 51
+      },
+      "states": {
+        "AK": {
+          "stateName": "Alaska",
+          "cameraCount": 27,
+          "flockCount": 22
+        },
+        "AL": {
+          "stateName": "Alabama",
+          "cameraCount": 2987,
+          "flockCount": 2532
+        },
+        "AR": {
+          "stateName": "Arkansas",
+          "cameraCount": 1087,
+          "flockCount": 966
+        },
+        "AZ": {
+          "stateName": "Arizona",
+          "cameraCount": 2682,
+          "flockCount": 2214
+        },
+        "CA": {
+          "stateName": "California",
+          "cameraCount": 21333,
+          "flockCount": 17048
+        },
+        "CO": {
+          "stateName": "Colorado",
+          "cameraCount": 2749,
+          "flockCount": 2322
+        },
+        "CT": {
+          "stateName": "Connecticut",
+          "cameraCount": 1013,
+          "flockCount": 647
+        },
+        "DC": {
+          "stateName": "District of Columbia",
+          "cameraCount": 110,
+          "flockCount": 93
+        },
+        "DE": {
+          "stateName": "Delaware",
+          "cameraCount": 500,
+          "flockCount": 399
+        },
+        "FL": {
+          "stateName": "Florida",
+          "cameraCount": 9621,
+          "flockCount": 7290
+        },
+        "GA": {
+          "stateName": "Georgia",
+          "cameraCount": 10117,
+          "flockCount": 9292
+        },
+        "HI": {
+          "stateName": "Hawaii",
+          "cameraCount": 92,
+          "flockCount": 65
+        },
+        "IA": {
+          "stateName": "Iowa",
+          "cameraCount": 870,
+          "flockCount": 808
+        },
+        "ID": {
+          "stateName": "Idaho",
+          "cameraCount": 470,
+          "flockCount": 343
+        },
+        "IL": {
+          "stateName": "Illinois",
+          "cameraCount": 8124,
+          "flockCount": 5845
+        },
+        "IN": {
+          "stateName": "Indiana",
+          "cameraCount": 3759,
+          "flockCount": 3392
+        },
+        "KS": {
+          "stateName": "Kansas",
+          "cameraCount": 2076,
+          "flockCount": 1324
+        },
+        "KY": {
+          "stateName": "Kentucky",
+          "cameraCount": 1874,
+          "flockCount": 1823
+        },
+        "LA": {
+          "stateName": "Louisiana",
+          "cameraCount": 2199,
+          "flockCount": 1725
+        },
+        "MA": {
+          "stateName": "Massachusetts",
+          "cameraCount": 1200,
+          "flockCount": 963
+        },
+        "MD": {
+          "stateName": "Maryland",
+          "cameraCount": 1003,
+          "flockCount": 738
+        },
+        "ME": {
+          "stateName": "Maine",
+          "cameraCount": 105,
+          "flockCount": 46
+        },
+        "MI": {
+          "stateName": "Michigan",
+          "cameraCount": 3696,
+          "flockCount": 3042
+        },
+        "MN": {
+          "stateName": "Minnesota",
+          "cameraCount": 1679,
+          "flockCount": 1448
+        },
+        "MO": {
+          "stateName": "Missouri",
+          "cameraCount": 3388,
+          "flockCount": 2462
+        },
+        "MS": {
+          "stateName": "Mississippi",
+          "cameraCount": 1156,
+          "flockCount": 986
+        },
+        "MT": {
+          "stateName": "Montana",
+          "cameraCount": 86,
+          "flockCount": 71
+        },
+        "NC": {
+          "stateName": "North Carolina",
+          "cameraCount": 3909,
+          "flockCount": 3415
+        },
+        "ND": {
+          "stateName": "North Dakota",
+          "cameraCount": 662,
+          "flockCount": 129
+        },
+        "NE": {
+          "stateName": "Nebraska",
+          "cameraCount": 643,
+          "flockCount": 413
+        },
+        "NH": {
+          "stateName": "New Hampshire",
+          "cameraCount": 71,
+          "flockCount": 19
+        },
+        "NJ": {
+          "stateName": "New Jersey",
+          "cameraCount": 2387,
           "flockCount": 1204
         },
         "NM": {
