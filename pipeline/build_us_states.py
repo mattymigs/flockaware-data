@@ -23,6 +23,8 @@ import tempfile
 import urllib.error
 import urllib.request
 import zipfile
+
+from publication_guard import DirectoryReader, camera_losses, populated, publication_violations, distance_meters
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -486,6 +488,53 @@ def previous_entry_by_code(manifest: dict[str, Any] | None) -> dict[str, dict[st
     }
 
 
+def should_preserve_detailed_dataset(state_code: str, dataset: dict[str, Any] | None) -> bool:
+    cameras = (dataset or {}).get("cameras", [])
+    if not cameras:
+        return False
+    compact_fields = {"id", "latitude", "longitude", "vendor", "dataStatus", "stateCode", "sourceName"}
+    return state_code == "NJ" or any(
+        any(populated(value) for key, value in camera.items() if key not in compact_fields)
+        or camera.get("sourceName") not in (None, "", "OpenStreetMap")
+        for camera in cameras
+    )
+
+
+def withdrawal_review(state_code, before, proposed, losses, source_keys):
+    old_by_id = {row["id"]: row for row in before["cameras"]}
+    new_by_id = {row["id"]: row for row in proposed["cameras"]}
+    withdrawn = [old_by_id[row["id"]] for row in losses if row["reason"] == "unreviewed_source_withdrawal"]
+    additions = [new_by_id[key] for key in sorted(new_by_id.keys() - old_by_id.keys())]
+    evidence = []
+    for old in withdrawn:
+        same_vendor = [row for row in additions if row.get("vendor") == old.get("vendor")]
+        nearest = min(same_vendor, key=lambda row: distance_meters(old, row)) if same_vendor else None
+        source_key = (round(old["latitude"] * 1_000_000), round(old["longitude"] * 1_000_000), old.get("vendor"))
+        evidence.append({"id": old["id"], "presentInCapturedSourceExactPositionVendor": source_key in source_keys,
+                         "nearestSameVendorAdditionId": nearest["id"] if nearest else None,
+                         "nearestSameVendorMeters": round(distance_meters(old, nearest), 3) if nearest else None,
+                         "disposition": "HOLD: source absence does not prove physical removal or identity transfer"})
+    return {"stateCode": state_code, "disposition": "RETAIN_ENTIRE_PRIOR_STATE",
+            "withdrawnRecords": withdrawn, "proposedAdditionsHeld": additions,
+            "existingValueChanges": [row for row in losses if row["reason"] != "unreviewed_source_withdrawal"],
+            "sourceEvidence": evidence}
+
+
+def write_quarantine(report):
+    # Avoid generating fake freshness/commits for an unchanged review record.
+    canonical = compact_json_bytes(report)
+    report_id = sha256_hex(canonical)
+    path = ROOT / "quarantine/backbone-pending.json"
+    old = read_json(path)
+    if old and old.get("reviewId") == report_id:
+        return path.read_bytes()
+    report = {"reviewId": report_id, "firstObservedAt": utc_now(), **report}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = compact_json_bytes(report)
+    path.write_bytes(raw)
+    return raw
+
+
 def main() -> None:
     generated_at = utc_now()
     previous_manifest = read_json(MANIFEST_PATH)
@@ -506,7 +555,8 @@ def main() -> None:
             )
 
     print("Downloading official Census state boundaries…")
-    boundaries = load_boundaries(fetch_first(CENSUS_BOUNDARY_URLS))
+    boundary_data = fetch_first(CENSUS_BOUNDARY_URLS)
+    boundaries = load_boundaries(boundary_data)
 
     assigned: dict[str, list[IndexRecord]] = {code: [] for code in STATE_CODES}
     unassigned: list[IndexRecord] = []
@@ -534,6 +584,9 @@ def main() -> None:
     staged_changes.mkdir(parents=True)
 
     any_camera_changes = False
+    held_states = []
+    detailed_states = []
+    source_keys = {(row.latitude_microdegrees, row.longitude_microdegrees, normalize_vendor(row.brand)) for row in records}
     manifest_entries: list[dict[str, Any]] = []
 
     try:
@@ -543,9 +596,9 @@ def main() -> None:
             old_dataset = read_json(old_path)
             old_entry = previous_entries.get(state_code)
 
-            # Preserve the enriched NJ dataset produced by refresh_nj.mjs. All
-            # other states are built from the compact national index in phase 1.
-            if state_code == "NJ" and old_dataset and old_dataset.get("cameras"):
+            # Preserve any existing rich metadata/provenance, not only OSM IDs.
+            if should_preserve_detailed_dataset(state_code, old_dataset):
+                detailed_states.append(state_code)
                 candidate = old_dataset
             else:
                 occurrences: dict[tuple[int, int, int], int] = defaultdict(int)
@@ -587,6 +640,11 @@ def main() -> None:
                 }
 
             validate_state_dataset(candidate, state_code)
+            if old_dataset:
+                losses = camera_losses(old_dataset["cameras"], candidate["cameras"])
+                if losses:
+                    held_states.append(withdrawal_review(state_code, old_dataset, candidate, losses, source_keys))
+                    candidate = old_dataset  # hold removals AND all associated additions
             cameras_changed = old_dataset is None or stable_camera_payload(candidate) != stable_camera_payload(old_dataset)
             if cameras_changed:
                 any_camera_changes = True
@@ -597,7 +655,7 @@ def main() -> None:
                 version = int((old_entry or {}).get("version", 1))
                 dataset = old_dataset
 
-            dataset_bytes = compact_json_bytes(dataset)
+            dataset_bytes = compact_json_bytes(dataset) if cameras_changed else old_path.read_bytes()
             (staged_states / f"{state_code}.json").write_bytes(dataset_bytes)
 
             if cameras_changed:
@@ -629,6 +687,9 @@ def main() -> None:
 
             cameras = dataset["cameras"]
             flock_count, bearing_count, operator_count = dataset_counts(cameras)
+            if not cameras_changed and old_entry:
+                manifest_entries.append(old_entry)
+                continue
             manifest_entries.append({
                 "stateCode": state_code,
                 "stateName": boundary.name,
@@ -668,6 +729,15 @@ def main() -> None:
             "states": manifest_entries,
         }
 
+        report = {"schemaVersion": 1, "policy": "no-unreviewed-withdrawals-or-populated-value-loss-v1",
+                  "sourceBuild": sidecar.get("build"),
+                  "sourceInputSha256": {"sidecar": sha256_hex(sidecar_data), "binary": sha256_hex(binary_data),
+                                        "boundaries": sha256_hex(boundary_data)},
+                  "baseManifestSha256": sha256_hex(MANIFEST_PATH.read_bytes()) if MANIFEST_PATH.exists() else None,
+                  "detailedStatesPreserved": detailed_states, "heldStates": held_states,
+                  "note": "Quarantine is evidence for review, not camera-removal or rekey confirmation"}
+        quarantine_raw = write_quarantine(report)
+
         # If source data and every state payload are unchanged, preserve the old
         # manifest timestamp and avoid needless repository churn.
         if not any_camera_changes and previous_manifest:
@@ -676,6 +746,11 @@ def main() -> None:
 
         staged_manifest = staging / "us_state_manifest.json"
         staged_manifest.write_bytes(compact_json_bytes(manifest))
+        (staging / "quarantine").mkdir()
+        (staging / "quarantine/backbone-pending.json").write_bytes(quarantine_raw)
+        violations = publication_violations(DirectoryReader(ROOT), DirectoryReader(staging))
+        if violations:
+            raise RuntimeError("Semantic publication HOLD: " + json.dumps(violations))
 
         # Atomic-ish repository replacement: all files are fully built and
         # validated in staging before they are copied into the publication tree.

@@ -100,7 +100,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          FLOCK_PUBLICATION_BASE_SHA="$(git rev-parse HEAD)"
+          python3 pipeline/publication_guard.py --base-sha "$FLOCK_PUBLICATION_BASE_SHA"
           git add us_state_manifest.json states changes statistics
+          if [[ -f quarantine/backbone-pending.json ]]; then
+            git add quarantine/backbone-pending.json
+          fi
           if git diff --cached --quiet; then
             echo "No validated camera or statistics changes to publish."
             exit 0
@@ -109,5 +114,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Publish enriched United States camera metadata"
-          git pull --rebase origin main
+          # Validate the actual output and current main again. Reject drift;
+          # never rebase already-generated camera payloads onto another writer.
+          python3 pipeline/publication_guard.py --base-sha "$FLOCK_PUBLICATION_BASE_SHA" --check-remote
           git push origin HEAD:main
